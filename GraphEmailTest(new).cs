@@ -50,12 +50,7 @@ namespace GraphEmailTest
             }
             catch (ServiceException ex)
             {
-                Console.WriteLine($"Erro ao acessar o Microsoft Graph: {ex.Message}");
-
-                // Verifica o código do erro para diagnosticar o problema
-                if (ex.Error != null)
-                {
-                    Console.WriteLine($"Erro ao acessar o Microsoft Graph: {ex.Message}");
+             Console.WriteLine($"Erro ao acessar o Microsoft Graph: {ex.Message}");
 
                 // Utiliza o status code para diagnosticar o problema
                 if (ex.StatusCode == HttpStatusCode.Unauthorized)
