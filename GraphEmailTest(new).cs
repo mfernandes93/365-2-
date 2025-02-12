@@ -26,18 +26,26 @@ namespace GraphEmailTest
             // Informe o e-mail (ou ID) do usuário que deseja consultar
             string userEmail = "user@example.com";
 
-            try
+           try
             {
                 // Consulta os 5 e-mails mais recentes da caixa de entrada do usuário especificado
                 var messages = await graphClient.Users[userEmail].Messages.GetAsync(config =>
                 {
-                     config.QueryParameters.Top = 5;
+                    config.QueryParameters.Top = 5;
                 });
 
-                Console.WriteLine("Últimos 5 e-mails na caixa de entrada do usuário:");
-                foreach (var msg in messages)
+                // Verifica se a resposta não é nula e possui mensagens
+                if (messages?.Value != null)
                 {
-                    Console.WriteLine($"Assunto: {msg.Subject} - De: {msg.From?.EmailAddress?.Address}");
+                    Console.WriteLine("Últimos 5 e-mails na caixa de entrada do usuário:");
+                    foreach (var msg in messages.Value)
+                    {
+                        Console.WriteLine($"Assunto: {msg.Subject} - De: {msg.From?.EmailAddress?.Address}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("Nenhuma mensagem foi retornada.");
                 }
             }
             catch (ServiceException ex)
@@ -47,7 +55,6 @@ namespace GraphEmailTest
         }
     }
 }
-
 
 
 
