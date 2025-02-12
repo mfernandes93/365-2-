@@ -29,7 +29,10 @@ namespace GraphEmailTest
             try
             {
                 // Consulta os 5 e-mails mais recentes da caixa de entrada do usuário especificado
-                var messages = await graphClient.Users[userEmail].Messages.Request().Top(5).GetAsync();
+                var messages = await graphClient.Users[userEmail].Messages.GetAsync(config =>
+                {
+                     config.QueryParameters.Top = 5;
+                });
 
                 Console.WriteLine("Últimos 5 e-mails na caixa de entrada do usuário:");
                 foreach (var msg in messages)
