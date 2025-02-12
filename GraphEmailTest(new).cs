@@ -34,7 +34,7 @@ namespace GraphEmailTest
                     config.QueryParameters.Top = 5;
                 });
 
-                // Verifica se a resposta não é nula e possui mensagens
+                                // Verifica se a resposta não é nula e possui mensagens
                 if (messages?.Value != null)
                 {
                     Console.WriteLine("Últimos 5 e-mails na caixa de entrada do usuário:");
@@ -51,12 +51,26 @@ namespace GraphEmailTest
             catch (ServiceException ex)
             {
                 Console.WriteLine($"Erro ao acessar o Microsoft Graph: {ex.Message}");
+
+                // Verifica o código do erro para diagnosticar o problema
+                if (ex.Error != null)
+                {
+                    Console.WriteLine($"Código do erro: {ex.Error.Code}");
+                    if (ex.Error.Code.Equals("InvalidAuthenticationToken", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.WriteLine("O token de autenticação parece ser inválido ou expirou.");
+                    }
+                    else if (ex.Error.Code.Equals("Authorization_RequestDenied", StringComparison.OrdinalIgnoreCase) ||
+                             ex.Error.Code.Equals("AccessDenied", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.WriteLine("Problema de permissões: o token pode não ter as permissões necessárias para acessar este recurso.");
+                    }
+                    else
+                    {
+                        Console.WriteLine("Verifique a mensagem de erro para mais detalhes.");
+                    }
+                }
             }
         }
     }
 }
-
-
-
-dotnet add package Microsoft.Graph
-dotnet add package Azure.Identity
