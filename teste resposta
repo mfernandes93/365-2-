@@ -1,0 +1,42 @@
+using Microsoft.Identity.Client;
+using Microsoft.Graph;
+using System;
+using System.Threading.Tasks;
+
+public class Program
+{
+    private static readonly string clientId = "Your-Client-Id";
+    private static readonly string tenantId = "Your-Tenant-Id";
+    private static readonly string clientSecret = "Your-Client-Secret";
+    private static readonly string authority = $"https://login.microsoftonline.com/{tenantId}";
+
+    public static async Task Main(string[] args)
+    {
+        try
+        {
+            var servicePrincipal = await TestRespostaApiGraph();
+            Console.WriteLine("Service Principal Display Name: " + servicePrincipal.DisplayName);
+            Console.WriteLine("Service Principal ID: " + servicePrincipal.Id);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error: " + ex.Message);
+        }
+    }
+
+    public static async Task<ServicePrincipal> TestRespostaApiGraph()
+    {
+        IConfidentialClientApplication app = ConfidentialClientApplicationBuilder.Create(clientId)
+            .WithClientSecret(clientSecret)
+            .WithAuthority(new Uri(authority))
+            .Build();
+
+        ClientCredentialProvider authProvider = new ClientCredentialProvider(app);
+
+        GraphServiceClient graphClient = new GraphServiceClient(authProvider);
+
+        // Consulta para obter detalhes do serviço (Service Principal) do aplicativo
+        var servicePrincipal = await graphClient.ServicePrincipals[clientId].Request().GetAsync();
+        return servicePrincipal;
+    }
+}
