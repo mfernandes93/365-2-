@@ -39,4 +39,21 @@ public class Program
         var servicePrincipal = await graphClient.ServicePrincipals[clientId].Request().GetAsync();
         return servicePrincipal;
     }
+
+    private class CustomAuthenticationProvider : IAuthenticationProvider
+    {
+        private IConfidentialClientApplication _app;
+
+        public CustomAuthenticationProvider(IConfidentialClientApplication app)
+        {
+            _app = app;
+        }
+
+        public async Task AuthenticateRequestAsync(HttpRequestMessage request)
+        {
+            // Aqui nós pegamos o token de contexto
+            var authResult = await _app.AcquireTokenForClient(new[] { "https://graph.microsoft.com/.default" }).ExecuteAsync();
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", authResult.AccessToken);
+        }
+    }
 }
