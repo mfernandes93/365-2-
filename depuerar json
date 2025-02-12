@@ -1,0 +1,23 @@
+var json = await response.Content.ReadAsStringAsync();
+Console.WriteLine("JSON recebido: " + json);
+
+var obj = JObject.Parse(json);
+Console.WriteLine("Parsed JSON: " + obj.ToString());
+
+// Verifique a estrutura real do JSON antes de acessar `Client_token`
+if (!obj.ContainsKey("data"))
+{
+    throw new Exception("JSON não contém a chave 'data'. Estrutura inválida.");
+}
+
+if (!obj["data"].ContainsKey("data"))
+{
+    throw new Exception("JSON não contém a chave 'data' dentro de 'data'.");
+}
+
+if (!obj["data"]["data"].ContainsKey("Client_token"))
+{
+    throw new Exception("JSON não contém 'Client_token'.");
+}
+
+var clientSecret = obj["data"]["data"]["Client_token"]?.ToString();
