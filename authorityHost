@@ -1,0 +1,40 @@
+using Azure.Identity;
+using Microsoft.Graph;
+using System;
+
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        var tenantId = "<SEU_TENANT_ID>";
+        var clientId = "<SEU_CLIENT_ID>";
+        var clientSecret = "<SEU_CLIENT_SECRET>";
+
+        // Montando a URL completa de authority (sem /v2.0 no final também funciona)
+        var authorityHost = new Uri($"https://login.microsoftonline.com/{tenantId}/v2.0");
+
+        // Opções para configurar a authority
+        var credentialOptions = new ClientSecretCredentialOptions
+        {
+            AuthorityHost = authorityHost
+        };
+
+        // Cria credencial com as opções e o authority definido
+        var clientSecretCredential = new ClientSecretCredential(
+            tenantId,
+            clientId,
+            clientSecret,
+            credentialOptions
+        );
+
+        // Escopos (/.default)
+        var scopes = new[] { "https://graph.microsoft.com/.default" };
+
+        // Cria o GraphServiceClient
+        var graphClient = new GraphServiceClient(clientSecretCredential, scopes);
+
+        // Testa chamada
+        var me = await graphClient.Me.Request().GetAsync();
+        Console.WriteLine($"Usuário logado: {me.DisplayName}");
+    }
+}
