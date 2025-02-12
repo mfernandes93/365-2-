@@ -1,0 +1,66 @@
+using Microsoft.Identity.Client;
+using System;
+using System.Net.Http;
+using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
+
+public class Program
+{
+    private static readonly string vaultBaseUrl = "Your-Vault-Base-URL";
+    private static readonly string vaultToken = "Your-Vault-Token";
+    private static readonly string secretPath = "Your-Secret-Path";
+    private static readonly string clientId = "Your-Client-Id";
+    private static readonly string tenantId = "Your-Tenant-Id";
+    private static readonly string authority = $"https://login.microsoftonline.com/{tenantId}";
+
+    public static async Task Main(string[] args)
+    {
+        string clientSecret = await GetSecretFromVault();
+
+        var app = ConfidentialClientApplicationBuilder.Create(clientId)
+            .WithClientSecret(clientSecret)
+            .WithAuthority(new Uri(authority))
+            .Build();
+
+        string[] scopes = new string[] { "https://graph.microsoft.com/.default" };
+
+        try
+        {
+            AuthenticationResult result = await app.AcquireTokenForClient(scopes).ExecuteAsync();
+            Console.WriteLine("Access token: " + result.AccessToken);
+        }
+        catch (MsalServiceException ex)
+        {
+            Console.WriteLine("MSAL Service Exception: " + ex.Message);
+        }
+        catch (MsalClientException ex)
+        {
+            Console.WriteLine("MSAL Client Exception: " + ex.Message);
+        }
+    }
+
+    private static async Task<string> GetSecretFromVault()
+    {
+        using var httpClient = new HttpClient();
+        httpClient.BaseAddress = new Uri(vaultBaseUrl);
+        httpClient.DefaultRequestHeaders.Add("X-Vault-Token", vaultToken);
+
+        var response = await httpClient.GetAsync(secretPath);
+        if (!response.IsSuccessStatusCode)
+        {
+            var err = await response.Content.ReadAsStringAsync();
+            throw new Exception($"Error loading secret from Vault: {response.StatusCode}\n{err}");
+        }
+
+        var json = await response.Content.ReadAsStringAsync();
+        var obj = JObject.Parse(json);
+        string clientSecret = obj["data"]["data"]["client_secret"]?.ToString();
+
+        if (string.IsNullOrEmpty(clientSecret))
+        {
+            throw new Exception("Client secret not found in JSON.");
+        }
+
+        return clientSecret;
+    }
+}
