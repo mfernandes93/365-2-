@@ -50,21 +50,30 @@ namespace GraphEmailTest
             }
             catch (ServiceException ex)
             {
-             Console.WriteLine($"Erro ao acessar o Microsoft Graph: {ex.Message}");
+            Console.WriteLine($"Erro ao acessar o Microsoft Graph: {ex.Message}");
 
-                // Utiliza o status code para diagnosticar o problema
-                if (ex.StatusCode == HttpStatusCode.Unauthorized)
+                // Tenta acessar o status code através da exceção interna, se for HttpRequestException
+                if (ex.InnerException is HttpRequestException httpEx && httpEx.StatusCode.HasValue)
                 {
-                    Console.WriteLine("Token de autenticação inválido ou expirado.");
-                }
-                else if (ex.StatusCode == HttpStatusCode.Forbidden)
-                {
-                    Console.WriteLine("Permissões insuficientes para acessar este recurso.");
+                    var statusCode = httpEx.StatusCode.Value;
+                    if (statusCode == HttpStatusCode.Unauthorized)
+                    {
+                        Console.WriteLine("Token de autenticação inválido ou expirado.");
+                    }
+                    else if (statusCode == HttpStatusCode.Forbidden)
+                    {
+                        Console.WriteLine("Permissões insuficientes para acessar este recurso.");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Status Code: {statusCode}");
+                    }
                 }
                 else
                 {
-                    Console.WriteLine($"Status Code: {ex.StatusCode}");
+                    Console.WriteLine("Não foi possível determinar o código de status HTTP.");
                 }
             }
         }
     }
+}
