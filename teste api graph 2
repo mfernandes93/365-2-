@@ -1,0 +1,89 @@
+🚀 Como Usar Esse Token no Microsoft Graph API?
+Agora que você tem o access_token, pode usá-lo para fazer requisições autenticadas.
+
+✅ Exemplo: Buscar Usuários do Azure AD
+sh
+Copiar
+Editar
+curl -X GET -H "Authorization: Bearer SEU_ACCESS_TOKEN" \
+-H "Content-Type: application/json" \
+"https://graph.microsoft.com/v1.0/users"
+✅ Exemplo: Buscar Informações da Aplicação
+sh
+Copiar
+Editar
+curl -X GET -H "Authorization: Bearer SEU_ACCESS_TOKEN" \
+-H "Content-Type: application/json" \
+"https://graph.microsoft.com/v1.0/me"
+🚨 Substitua SEU_ACCESS_TOKEN pelo token gerado na resposta!
+
+📢 Próximos Passos
+✔ O token expira em 1 hora, então será necessário gerar um novo quando ele expirar.
+✔ Se precisar de mais permissões, adicione-as no Azure AD e gere um novo token.
+✔ Se precisar acessar dados administrativos (User.Read.All, Directory.Read.All), verifique se o administrador concedeu consentimento no Azure.
+
+🚀 Agora você pode começar a consumir os dados da Microsoft Graph API! 🔥 Se precisar de mais ajuda, é só falar! 😊
+
+
+
+
+
+
+Você disse:
+consigo testar acesso a um email 
+O ChatGPT disse:
+Sim! Agora que você tem um access token válido, você pode testar o acesso ao e-mail de uma conta do Microsoft 365 (Exchange Online) via Microsoft Graph API.
+
+🔹 Testando o Acesso ao E-mail com o Token
+✅ 1. Verificar se o Token tem Permissão para Ler E-mails
+Antes de testar, seu aplicativo precisa da permissão Mail.Read ou Mail.ReadWrite com Application Permissions no Azure AD.
+
+1️⃣ Vá para Azure Portal → Azure Active Directory
+2️⃣ Acesse App registrations e selecione seu aplicativo
+3️⃣ Vá para API Permissions → Add a permission
+4️⃣ Escolha Microsoft Graph → Application Permissions
+5️⃣ Adicione Mail.Read ou Mail.ReadWrite
+6️⃣ Clique em "Grant Admin Consent"
+7️⃣ Gere um novo token com curl e use no próximo passo
+
+✅ 2. Testar a API para Ler os E-mails
+Agora, com um token atualizado, faça a requisição:
+
+sh
+Copiar
+Editar
+curl -X GET -H "Authorization: Bearer SEU_ACCESS_TOKEN" \
+-H "Content-Type: application/json" \
+"https://graph.microsoft.com/v1.0/users/email@dominio.com/messages"
+🔹 Substitua SEU_ACCESS_TOKEN pelo token gerado.
+🔹 Substitua email@dominio.com pelo e-mail real do usuário que deseja testar.
+
+✅ 3. Exemplo de Resposta da API
+Se tudo estiver correto, você verá um JSON como este:
+
+json
+Copiar
+Editar
+{
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('email@dominio.com')/messages",
+    "value": [
+        {
+            "id": "AAMkAGI2...",
+            "receivedDateTime": "2025-02-12T12:34:56Z",
+            "subject": "Reunião agendada",
+            "from": {
+                "emailAddress": {
+                    "name": "João Silva",
+                    "address": "joao.silva@empresa.com"
+                }
+            },
+            "bodyPreview": "Confirmando nossa reunião para amanhã..."
+        }
+    ]
+}
+📌 Próximos Passos
+1️⃣ Se der erro de permissão, confira se Mail.Read está configurado corretamente no Azure.
+2️⃣ Se precisar enviar e-mails, use Mail.Send e faça um POST na API /sendMail.
+3️⃣ Se precisar acessar caixas de entrada compartilhadas, use Shared Mailbox Access (Mail.Read.Shared).
+
+🚀 Testa e me avisa se funcionou! 🔥
