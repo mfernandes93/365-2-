@@ -1,0 +1,41 @@
+using System;
+using System.Threading.Tasks;
+using Azure.Identity;
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+
+public class Program
+{
+    private static readonly string clientId = "Your-Client-Id";
+    private static readonly string tenantId = "Your-Tenant-Id";
+    private static readonly string clientSecret = "Your-Client-Secret";
+
+    public static async Task Main(string[] args)
+    {
+        try
+        {
+            var servicePrincipal = await TesteRespostaApiGraph();
+            Console.WriteLine("Service Principal Display Name: " + servicePrincipal.DisplayName);
+            Console.WriteLine("Service Principal ID: " + servicePrincipal.Id);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erro ao acessar Microsoft Graph: {ex.Message}");
+        }
+    }
+
+    public static async Task<ServicePrincipal> TesteRespostaApiGraph()
+    {
+        // ✅ Usa Azure.Identity para autenticação correta na versão 5.6 da Microsoft Graph SDK
+        var clientSecretCredential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+        var scopes = new[] { "https://graph.microsoft.com/.default" };
+
+        // ✅ Usa TokenCredentialAuthProvider (NÃO PRECISA mais de IAuthenticationProvider)
+        var graphClient = new GraphServiceClient(clientSecretCredential, scopes);
+
+        // ✅ Testa a conexão acessando o Service Principal
+        var servicePrincipal = await graphClient.ServicePrincipals.GetAsync();
+        
+        return servicePrincipal?.Value?[0]; // Retorna o primeiro Service Principal (caso exista)
+    }
+}
