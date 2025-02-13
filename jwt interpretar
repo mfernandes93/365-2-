@@ -1,0 +1,17 @@
+{
+  "aud": "https://graph.microsoft.com",
+  "iss": "https://sts.windows.net/{tenant_id}/",
+  "iat": 1675296707,
+  "exp": 1675300307,
+  "roles": [
+    "User.Read.All",
+    "Mail.Read",
+    "Directory.Read.All"
+  ],
+  "scp": "User.Read Mail.Read"
+}
+
+"roles"	Lista de Application Permissions concedidas (precisa de Admin Consent).
+"scp"	Lista de Delegated Permissions do usuário autenticado.
+"aud"	Mostra para qual serviço o token é válido (ex: https://graph.microsoft.com).
+"exp"	Timestamp de expiração do token.
