@@ -1,0 +1,74 @@
+O erro AuthenticationException: The remote certificate was rejected by the provided RemoteCertificateValidationCallback indica que o certificado do servidor não foi aceito pelo cliente. Isso pode acontecer por alguns motivos:
+
+📌 Possíveis Causas e Soluções
+1️⃣ O CA.pem não corresponde ao certificado do servidor
+🔹 Solução: Verifique se o CA.pem realmente é a autoridade certificadora do certificado do servidor.
+🔹 Para testar manualmente:
+
+sh
+Copiar
+Editar
+openssl s_client -connect seu-vault-url.com:443 -CAfile CA.pem
+Se o certificado não for confiável, ele não será aceito.
+
+2️⃣ O callback de validação SSL está rejeitando o certificado
+🔹 Solução: Modifique o callback para permitir qualquer certificado temporariamente e verifique se isso resolve:
+
+csharp
+Copiar
+Editar
+handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+⚠ Atenção: Isso desativa a validação SSL, use apenas para testar!
+
+3️⃣ O CA.pem não está sendo carregado corretamente
+🔹 Solução: Verifique se o CA.pem está correto e válido:
+
+csharp
+Copiar
+Editar
+var caCert = new X509Certificate2("Certificados/CA.pem");
+Console.WriteLine("CA carregado: " + caCert.Subject);
+Se lançar uma exceção, o arquivo pode estar corrompido.
+
+4️⃣ O servidor está usando um certificado autoassinado
+🔹 Solução: Se for um ambiente interno, você pode precisar adicionar o CA à loja de certificados confiáveis do Windows/Linux.
+
+📌 Como Corrigir no Código
+Aqui está um código atualizado para lidar melhor com a validação SSL:
+
+🔹 Atualize o CreateHttpClient()
+csharp
+Copiar
+Editar
+private HttpClient CreateHttpClient()
+{
+    var handler = new HttpClientHandler();
+    
+    // Carregar o certificado PFX
+    var clientCert = new X509Certificate2(_pfxPath, _pfxPassword);
+    handler.ClientCertificates.Add(clientCert);
+
+    // Carregar o CA.pem para validar conexões SSL
+    var caCert = new X509Certificate2(_caPath);
+
+    // Definir a validação de certificado
+    handler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, chain, sslPolicyErrors) =>
+    {
+        if (sslPolicyErrors == System.Net.Security.SslPolicyErrors.None)
+            return true; // O certificado é válido
+
+        Console.WriteLine($"⚠ Certificado rejeitado: {cert.Subject}");
+        
+        // Verifica se o certificado recebido corresponde ao CA esperado
+        return chain.ChainElements[0].Certificate.Thumbprint == caCert.Thumbprint;
+    };
+
+    return new HttpClient(handler);
+}
+📌 Resumo
+✔ Verifique se o CA.pem é válido e corresponde ao servidor
+✔ Se necessário, teste permitindo qualquer certificado (return true;)
+✔ Confirme que o CA.pem está sendo carregado corretamente no código
+✔ Se for um certificado autoassinado, adicione o CA ao sistema operacional
+
+Testa essas soluções e me avise se o erro persistir! 🚀
