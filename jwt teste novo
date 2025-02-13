@@ -1,0 +1,73 @@
+using System;
+using System.Net.Http;
+using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Microsoft.Identity.Client;
+
+class Program
+{
+    static async Task Main()
+    {
+        string jwt = await GetJWT();
+        Console.WriteLine($"JWT: {jwt}");
+    }
+
+    static async Task<string> GetJWT()
+    {
+        string vaultUrl = "https://seu-vault-url.com";
+        string secretPath = "seu-secret-path";
+        string certPath = "certificado.pfx";
+        string certPassword = "vault-password";
+        string tenantId = "sua-tenant-id";
+        string clientId = "seu-client-id";
+        string[] scopes = { "https://graph.microsoft.com/.default" };
+
+        string hvsToken = await GetHVSToken(vaultUrl, certPath, certPassword);
+        string vaultSecret = await GetSecretFromVault(vaultUrl, secretPath, hvsToken);
+        string clientSecret = ExtractClientSecret(vaultSecret);
+        
+        IConfidentialClientApplication app = ConfidentialClientApplicationBuilder
+            .Create(clientId)
+            .WithClientSecret(clientSecret)
+            .WithAuthority(new Uri($"https://login.microsoftonline.com/{tenantId}"))
+            .Build();
+
+        AuthenticationResult result = await app.AcquireTokenForClient(scopes).ExecuteAsync();
+        return result.AccessToken;
+    }
+
+    static async Task<string> GetHVSToken(string vaultUrl, string certPath, string password)
+    {
+        X509Certificate2 certificate = new X509Certificate2(certPath, password);
+        using HttpClient client = new HttpClient();
+        
+        var request = new HttpRequestMessage(HttpMethod.Post, $"{vaultUrl}/v1/auth/cert/login");
+        request.Headers.Add("X-Vault-Cert", Convert.ToBase64String(certificate.RawData));
+        
+        HttpResponseMessage response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        
+        using JsonDocument doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return doc.RootElement.GetProperty("auth").GetProperty("client_token").GetString();
+    }
+
+    static async Task<string> GetSecretFromVault(string vaultUrl, string secretPath, string hvsToken)
+    {
+        using HttpClient client = new HttpClient();
+        
+        var request = new HttpRequestMessage(HttpMethod.Get, $"{vaultUrl}/v1/{secretPath}");
+        request.Headers.Add("X-Vault-Token", hvsToken);
+        
+        HttpResponseMessage response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        
+        return await response.Content.ReadAsStringAsync();
+    }
+
+    static string ExtractClientSecret(string secretJson)
+    {
+        using JsonDocument doc = JsonDocument.Parse(secretJson);
+        return doc.RootElement.GetProperty("data").GetProperty("client_secret").GetString();
+    }
+}
