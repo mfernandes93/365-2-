@@ -1,0 +1,46 @@
+🔹 Exemplo de cURL usando um CA local
+Se você tem um arquivo meu-certificado-ca.pem, pode usá-lo assim:
+
+sh
+Copiar
+Editar
+curl -X GET -H "Authorization: Bearer SEU_ACCESS_TOKEN" \
+-H "Content-Type: application/json" \
+"https://graph.microsoft.com/v1.0/me/messages" \
+--cacert /caminho/para/meu-certificado-ca.pem
+🔹 Substitua:
+
+/caminho/para/meu-certificado-ca.pem pelo caminho real do seu certificado CA.
+SEU_ACCESS_TOKEN pelo seu token de acesso real.
+🔹 Se precisar adicionar múltiplos certificados
+Se você precisa usar vários certificados, pode apontar para um arquivo que contém a cadeia de certificação completa:
+
+sh
+Copiar
+Editar
+curl -X GET -H "Authorization: Bearer SEU_ACCESS_TOKEN" \
+-H "Content-Type: application/json" \
+"https://graph.microsoft.com/v1.0/me/messages" \
+--capath /caminho/para/diretorio-de-cas/
+📌 Importante:
+
+--cacert aceita um único arquivo de CA.
+--capath pode ser usado se você tiver vários certificados em um diretório.
+🔹 Se precisar ignorar SSL temporariamente
+Se você estiver apenas testando e quiser ignorar a verificação SSL, pode usar:
+
+sh
+Copiar
+Editar
+curl -X GET -H "Authorization: Bearer SEU_ACCESS_TOKEN" \
+-H "Content-Type: application/json" \
+"https://graph.microsoft.com/v1.0/me/messages" \
+-k
+⚠ Atenção: -k (ou --insecure) ignora a verificação de SSL, não recomendado para produção!
+
+🛠 Resumo
+✅ Use --cacert para especificar um CA local.
+✅ Use --capath para múltiplos certificados.
+✅ Evite -k (ignorar SSL) em produção.
+
+🚀 Tenta e me avisa se precisar de mais ajustes! 🔥
