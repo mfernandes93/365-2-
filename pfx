@@ -104,4 +104,73 @@ public class VaultAuthenticator
             var response = httpClient.GetAsync(_vaultUrl).Result;
             if (!response.IsSuccessStatusCode)
             {
-                throw new Exception("HashiCorp Vault inacessível ou URL 
+                throw new Exception("HashiCorp Vault inacessível ou URL incorreta.");
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Erro ao conectar ao Vault: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Autentica no HashiCorp Vault e retorna um token HVS.
+    /// </summary>
+    private async Task<string> AuthenticateVault(HttpClient httpClient)
+    {
+        var response = await httpClient.PostAsync(_vaultUrl, null);
+        response.EnsureSuccessStatusCode();
+        var responseJson = await response.Content.ReadAsStringAsync();
+        var json = JsonSerializer.Deserialize<JsonElement>(responseJson);
+        return json.GetProperty("auth").GetProperty("client_token").GetString();
+    }
+
+    /// <summary>
+    /// Valida se o token HVS foi obtido corretamente.
+    /// </summary>
+    private void ValidateHvsToken(string hvsToken)
+    {
+        if (string.IsNullOrEmpty(hvsToken))
+        {
+            throw new Exception("Token HVS inválido ou não obtido corretamente.");
+        }
+    }
+
+    /// <summary>
+    /// Obtém o Client Secret armazenado no Vault usando o token HVS.
+    /// </summary>
+    private async Task<string> GetClientSecretFromVault(HttpClient httpClient, string hvsToken)
+    {
+        string vaultSecretUrl = "https://seu-vault-url.com/v1/secret/data/microsoft-client-secret";
+        var request = new HttpRequestMessage(HttpMethod.Get, vaultSecretUrl);
+        request.Headers.Add("X-Vault-Token", hvsToken);
+
+        var response = await httpClient.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        var responseJson = await response.Content.ReadAsStringAsync();
+        var json = JsonSerializer.Deserialize<JsonElement>(responseJson);
+        return json.GetProperty("data").GetProperty("data").GetProperty("client_secret").GetString();
+    }
+
+    /// <summary>
+    /// Obtém um JWT Bearer do Microsoft Graph API usando o Client Secret.
+    /// </summary>
+    private async Task<string> GetMicrosoftGraphJwt(string clientSecret)
+    {
+        string tokenUrl = $"https://login.microsoftonline.com/{_tenantId}/oauth2/v2.0/token";
+        var httpClient = new HttpClient();
+        var content = new FormUrlEncodedContent(new[]
+        {
+            new KeyValuePair<string, string>("client_id", _clientId),
+            new KeyValuePair<string, string>("client_secret", clientSecret),
+            new KeyValuePair<string, string>("scope", "https://graph.microsoft.com/.default"),
+            new KeyValuePair<string, string>("grant_type", "client_credentials")
+        });
+
+        var response = await httpClient.PostAsync(tokenUrl, content);
+        response.EnsureSuccessStatusCode();
+        var responseJson = await response.Content.ReadAsStringAsync();
+        var json = JsonSerializer.Deserialize<JsonElement>(responseJson);
+        return json.GetProperty("access_token").GetString();
+    }
+}
