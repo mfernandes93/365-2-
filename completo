@@ -1,0 +1,241 @@
+📌 Estrutura do Código
+VaultAuthenticator.cs → Gerencia a autenticação no HashiCorp Vault e a obtenção do JWT.
+MicrosoftGraphClient.cs → Gerencia a validação do JWT e a leitura de e-mails no Microsoft Graph.
+Program.cs → Apenas chama os métodos.
+📌 VaultAuthenticator.cs (Autenticação no Vault e Obtenção do JWT)
+
+using System;
+using System.Net.Http;
+using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
+using System.Threading.Tasks;
+
+public class VaultAuthenticator
+{
+    private readonly string _certPath;
+    private readonly string _keyPath;
+    private readonly string _caPath;
+    private readonly string _vaultUrl = "https://seu-vault-url.com/v1/auth/cert/login";
+    private readonly string _tenantId = "SEU_TENANT_ID";
+    private readonly string _clientId = "SEU_CLIENT_ID";
+
+    public VaultAuthenticator()
+    {
+        // Define os caminhos dos certificados na pasta Certificados do projeto
+        string basePath = AppDomain.CurrentDomain.BaseDirectory + "Certificados/";
+        _certPath = basePath + "certificado.pem";
+        _keyPath = basePath + "chave.pem";
+        _caPath = basePath + "CA.pem";
+    }
+
+    /// <summary>
+    /// Executa o fluxo completo: valida certificados, autentica no Vault, obtém o Client Secret e retorna um JWT válido.
+    /// </summary>
+    public async Task<string> AuthenticateAndGetJwtAsync()
+    {
+        if (!ValidateCertificates())
+        {
+            throw new Exception("Certificados inválidos.");
+        }
+
+        HttpClient httpClient = CreateHttpClient();
+        string hvsToken = await AuthenticateVault(httpClient);
+        string clientSecret = await GetClientSecretFromVault(httpClient, hvsToken);
+        return await GetMicrosoftGraphJwt(clientSecret);
+    }
+
+    /// <summary>
+    /// Valida se os certificados estão corretos e carregáveis.
+    /// </summary>
+    private bool ValidateCertificates()
+    {
+        try
+        {
+            _ = new X509Certificate2(_caPath);
+            _ = new X509Certificate2(_certPath);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Cria um HttpClient configurado com autenticação mTLS.
+    /// </summary>
+    private HttpClient CreateHttpClient()
+    {
+        var handler = new HttpClientHandler();
+        var caCert = new X509Certificate2(_caPath);
+
+        handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
+        {
+            return chain.ChainElements[0].Certificate.Thumbprint == caCert.Thumbprint;
+        };
+
+        var clientCert = new X509Certificate2(_certPath);
+        handler.ClientCertificates.Add(clientCert);
+
+        return new HttpClient(handler);
+    }
+
+    /// <summary>
+    /// Autentica no HashiCorp Vault e retorna um token HVS.
+    /// </summary>
+    private async Task<string> AuthenticateVault(HttpClient httpClient)
+    {
+        var response = await httpClient.PostAsync(_vaultUrl, null);
+        response.EnsureSuccessStatusCode();
+        var responseJson = await response.Content.ReadAsStringAsync();
+        var json = JsonSerializer.Deserialize<JsonElement>(responseJson);
+        return json.GetProperty("auth").GetProperty("client_token").GetString();
+    }
+
+    /// <summary>
+    /// Obtém o Client Secret armazenado no Vault usando o token HVS.
+    /// </summary>
+    private async Task<string> GetClientSecretFromVault(HttpClient httpClient, string hvsToken)
+    {
+        string vaultSecretUrl = "https://seu-vault-url.com/v1/secret/data/microsoft-client-secret";
+        var request = new HttpRequestMessage(HttpMethod.Get, vaultSecretUrl);
+        request.Headers.Add("X-Vault-Token", hvsToken);
+        var response = await httpClient.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        var responseJson = await response.Content.ReadAsStringAsync();
+        var json = JsonSerializer.Deserialize<JsonElement>(responseJson);
+        return json.GetProperty("data").GetProperty("data").GetProperty("client_secret").GetString();
+    }
+
+    /// <summary>
+    /// Obtém um JWT Bearer do Microsoft Graph API usando o Client Secret.
+    /// </summary>
+    private async Task<string> GetMicrosoftGraphJwt(string clientSecret)
+    {
+        string tokenUrl = $"https://login.microsoftonline.com/{_tenantId}/oauth2/v2.0/token";
+        var httpClient = new HttpClient();
+        var content = new FormUrlEncodedContent(new[]
+        {
+            new KeyValuePair<string, string>("client_id", _clientId),
+            new KeyValuePair<string, string>("client_secret", clientSecret),
+            new KeyValuePair<string, string>("scope", "https://graph.microsoft.com/.default"),
+            new KeyValuePair<string, string>("grant_type", "client_credentials")
+        });
+
+        var response = await httpClient.PostAsync(tokenUrl, content);
+        response.EnsureSuccessStatusCode();
+        var responseJson = await response.Content.ReadAsStringAsync();
+        var json = JsonSerializer.Deserialize<JsonElement>(responseJson);
+        return json.GetProperty("access_token").GetString();
+    }
+}
+📌 MicrosoftGraphClient.cs (Validação do JWT e Leitura de E-mails)
+
+using System;
+using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http;
+using System.Security.Claims;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Microsoft.IdentityModel.Tokens;
+
+public class MicrosoftGraphClient
+{
+    private readonly string _tenantId = "SEU_TENANT_ID";
+    private readonly string _userEmail = "email@dominio.com"; // Defina o e-mail do usuário aqui
+
+    /// <summary>
+    /// Valida se um JWT é válido e confiável.
+    /// </summary>
+    public bool ValidateJwt(string token, out ClaimsPrincipal principal)
+    {
+        principal = null;
+
+        try
+        {
+            var tokenHandler = new JwtSecurityTokenHandler();
+            var validationParameters = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = false,
+                ValidateIssuer = true,
+                ValidIssuer = $"https://login.microsoftonline.com/{_tenantId}/v2.0",
+                ValidateAudience = true,
+                ValidAudience = "https://graph.microsoft.com",
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.Zero
+            };
+
+            principal = tokenHandler.ValidateToken(token, validationParameters, out SecurityToken validatedToken);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Verifica se o JWT contém as permissões necessárias (Mail.Read ou Mail.Send).
+    /// </summary>
+    public bool HasRequiredPermissions(ClaimsPrincipal principal)
+    {
+        var scopes = principal.FindFirst("scp")?.Value ?? "";
+        var roles = principal.FindFirst("roles")?.Value ?? "";
+
+        return scopes.Contains("Mail.Read") || scopes.Contains("Mail.Send") ||
+               roles.Contains("Mail.Read") || roles.Contains("Mail.Send");
+    }
+
+    /// <summary>
+    /// Obtém e-mails do Microsoft Graph API usando um JWT Bearer válido.
+    /// </summary>
+    public async Task GetEmailsFromMicrosoftGraph(string jwtBearer)
+    {
+        string graphUrl = $"https://graph.microsoft.com/v1.0/users/{_userEmail}/messages";
+
+        using (var httpClient = new HttpClient())
+        {
+            httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", jwtBearer);
+            var response = await httpClient.GetAsync(graphUrl);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"Falha ao acessar emails. Código de erro: {response.StatusCode}");
+            }
+
+            string responseJson = await response.Content.ReadAsStringAsync();
+            Console.WriteLine(responseJson);
+        }
+    }
+}
+📌 Program.cs (Chamada dos Métodos)
+
+using System;
+using System.Threading.Tasks;
+
+class Program
+{
+    static async Task Main()
+    {
+        try
+        {
+            VaultAuthenticator vaultAuth = new VaultAuthenticator();
+            string jwtBearer = await vaultAuth.AuthenticateAndGetJwtAsync();
+
+            MicrosoftGraphClient graphClient = new MicrosoftGraphClient();
+            if (graphClient.ValidateJwt(jwtBearer, out ClaimsPrincipal principal) && graphClient.HasRequiredPermissions(principal))
+            {
+                await graphClient.GetEmailsFromMicrosoftGraph(jwtBearer);
+            }
+            else
+            {
+                Console.WriteLine("JWT inválido ou sem permissões suficientes.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erro: {ex.Message}");
+        }
+    }
+}
+Agora o código está bem documentado e organizado. Se precisar de ajustes, me avise!
