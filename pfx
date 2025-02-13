@@ -1,0 +1,115 @@
+using System;
+using System.Net.Http;
+using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
+using System.Threading.Tasks;
+
+public class VaultAuthenticator
+{
+    private readonly string _pfxPath;
+    private readonly string _pfxPassword = "SUA_SENHA_PFX"; // Senha do certificado PFX
+    private readonly string _vaultUrl = "https://seu-vault-url.com/v1/auth/cert/login";
+    private readonly string _tenantId = "SEU_TENANT_ID";
+    private readonly string _clientId = "SEU_CLIENT_ID";
+
+    public VaultAuthenticator()
+    {
+        // Define o caminho do PFX na pasta Certificados do projeto
+        string basePath = AppDomain.CurrentDomain.BaseDirectory + "Certificados/";
+        _pfxPath = basePath + "certificado.pfx";
+    }
+
+    /// <summary>
+    /// Executa o fluxo completo: valida certificado, autentica no Vault, obtém o Client Secret e retorna um JWT válido.
+    /// </summary>
+    public async Task<string> AuthenticateAndGetJwtAsync()
+    {
+        if (!ValidateCertificate())
+        {
+            throw new Exception("Certificado PFX inválido.");
+        }
+
+        HttpClient httpClient = CreateHttpClient();
+        string hvsToken = await AuthenticateVault(httpClient);
+        string clientSecret = await GetClientSecretFromVault(httpClient, hvsToken);
+        return await GetMicrosoftGraphJwt(clientSecret);
+    }
+
+    /// <summary>
+    /// Valida se o certificado PFX está correto e carregável.
+    /// </summary>
+    private bool ValidateCertificate()
+    {
+        try
+        {
+            _ = new X509Certificate2(_pfxPath, _pfxPassword);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Cria um HttpClient configurado com o certificado PFX.
+    /// </summary>
+    private HttpClient CreateHttpClient()
+    {
+        var handler = new HttpClientHandler();
+        var clientCert = new X509Certificate2(_pfxPath, _pfxPassword);
+        handler.ClientCertificates.Add(clientCert);
+        return new HttpClient(handler);
+    }
+
+    /// <summary>
+    /// Autentica no HashiCorp Vault e retorna um token HVS.
+    /// </summary>
+    private async Task<string> AuthenticateVault(HttpClient httpClient)
+    {
+        var response = await httpClient.PostAsync(_vaultUrl, null);
+        response.EnsureSuccessStatusCode();
+        var responseJson = await response.Content.ReadAsStringAsync();
+        var json = JsonSerializer.Deserialize<JsonElement>(responseJson);
+        return json.GetProperty("auth").GetProperty("client_token").GetString();
+    }
+
+    /// <summary>
+    /// Obtém o Client Secret armazenado no Vault usando o token HVS.
+    /// </summary>
+    private async Task<string> GetClientSecretFromVault(HttpClient httpClient, string hvsToken)
+    {
+        string vaultSecretUrl = "https://seu-vault-url.com/v1/secret/data/microsoft-client-secret";
+        var request = new HttpRequestMessage(HttpMethod.Get, vaultSecretUrl);
+        request.Headers.Add("X-Vault-Token", hvsToken);
+
+        var response = await httpClient.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        var responseJson = await response.Content.ReadAsStringAsync();
+        var json = JsonSerializer.Deserialize<JsonElement>(responseJson);
+        return json.GetProperty("data").GetProperty("data").GetProperty("client_secret").GetString();
+    }
+
+    /// <summary>
+    /// Obtém um JWT Bearer do Microsoft Graph API usando o Client Secret.
+    /// </summary>
+    private async Task<string> GetMicrosoftGraphJwt(string clientSecret)
+    {
+        string tokenUrl = $"https://login.microsoftonline.com/{_tenantId}/oauth2/v2.0/token";
+        var httpClient = new HttpClient();
+        var content = new FormUrlEncodedContent(new[]
+        {
+            new KeyValuePair<string, string>("client_id", _clientId),
+            new KeyValuePair<string, string>("client_secret", clientSecret),
+            new KeyValuePair<string, string>("scope", "https://graph.microsoft.com/.default"),
+            new KeyValuePair<string, string>("grant_type", "client_credentials")
+        });
+
+        var response = await httpClient.PostAsync(tokenUrl, content);
+        response.EnsureSuccessStatusCode();
+        var responseJson = await response.Content.ReadAsStringAsync();
+        var json = JsonSerializer.Deserialize<JsonElement>(responseJson);
+        return json.GetProperty("access_token").GetString();
+    }
+}
+
