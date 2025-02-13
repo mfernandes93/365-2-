@@ -1,0 +1,13 @@
+Assunto: Solicitação de Permissão de Acesso - Microsoft API Graph
+
+Prezado(a) Fulano de Tal,
+
+Solicito permissões de leitura, gravação e envio para a caixa de e-mail email@email no Microsoft API Graph.
+
+Atualmente, o processo automatizado Mobios, que anteriormente operava On-Premises, era responsável por ler e-mails, abrir demandas de abertura de contas e enviar atualizações de status. Com a migração das caixas de e-mail para o Microsoft 365, integrando-as ao Dynamics 365, essa automação deixou de funcionar, impactando diretamente o fluxo operacional.
+
+Para garantir a continuidade desse processo essencial, é necessária a concessão das permissões solicitadas, permitindo a adequada integração do Mobios ao novo ambiente.
+
+Agradeço desde já a análise e aguardo sua aprovação para prosseguirmos.
+
+Atenciosamente,Marlon Henrique Cardoso
