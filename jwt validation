@@ -1,0 +1,78 @@
+using System;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+
+class Program
+{
+    static void Main()
+    {
+        string secretKey = "minha_chave_super_secreta"; // Chave usada na assinatura do JWT
+        string token = "SEU_JWT_AQUI"; // Insira o JWT real
+
+        ClaimsPrincipal principal;
+        bool isValid = ValidateJwt(token, secretKey, out principal);
+
+        if (isValid)
+        {
+            Console.WriteLine("✅ JWT Válido!");
+            Console.WriteLine($"Usuário: {principal.Identity?.Name ?? "Desconhecido"}");
+            Console.WriteLine("Claims:");
+            foreach (var claim in principal.Claims)
+            {
+                Console.WriteLine($"  {claim.Type}: {claim.Value}");
+            }
+        }
+        else
+        {
+            Console.WriteLine("❌ JWT Inválido ou Assinatura incorreta!");
+        }
+    }
+
+    /// <summary>
+    /// Método para validar um JWT usando uma chave secreta.
+    /// </summary>
+    /// <param name="token">O token JWT a ser validado</param>
+    /// <param name="secretKey">A chave secreta usada na assinatura</param>
+    /// <param name="principal">Objeto ClaimsPrincipal contendo as informações do JWT</param>
+    /// <returns>True se o JWT for válido, False caso contrário</returns>
+    public static bool ValidateJwt(string token, string secretKey, out ClaimsPrincipal principal)
+    {
+        principal = null;
+
+        try
+        {
+            var tokenHandler = new JwtSecurityTokenHandler();
+            var key = Encoding.UTF8.GetBytes(secretKey);
+
+            var validationParameters = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new SymmetricSecurityKey(key),
+                ValidateIssuer = false, // Defina para true se precisar validar o emissor
+                ValidateAudience = false, // Defina para true se precisar validar a audiência
+                ValidateLifetime = true, // Valida se o token expirou
+                ClockSkew = TimeSpan.Zero // Reduz a margem de erro de tempo para validação de expiração
+            };
+
+            principal = tokenHandler.ValidateToken(token, validationParameters, out SecurityToken validatedToken);
+            return true;
+        }
+        catch (SecurityTokenExpiredException)
+        {
+            Console.WriteLine("❌ O JWT expirou!");
+            return false;
+        }
+        catch (SecurityTokenInvalidSignatureException)
+        {
+            Console.WriteLine("❌ Assinatura do JWT inválida! Verifique a chave secreta.");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Erro ao validar JWT: {ex.Message}");
+            return false;
+        }
+    }
+}
