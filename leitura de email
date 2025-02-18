@@ -1,0 +1,347 @@
+Abaixo segue um exemplo completo em que cada método (onboardDigital, institucional, etc.) lê o ambiente do App.config e define seus caminhos (DEV/PROD) dentro do próprio método. Dessa forma, cada método tem tudo “local” a ele: o caminho de download, as palavras-chave, e a lógica para escolher entre DEV ou PROD sem precisar de parâmetros adicionais.
+
+1) App.config (exemplo)
+xml
+
+<?xml version="1.0" encoding="utf-8" ?>
+<configuration>
+  <appSettings>
+    <!-- Pode ser "Dev" ou "Prod". -->
+    <add key="Ambiente" value="Dev" />
+  </appSettings>
+</configuration>
+
+Para mudar o ambiente, basta alterar value para Prod.
+
+2) Código da classe
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+using Microsoft.Graph;
+using System.Configuration; // Necessário para ConfigurationManager.AppSettings
+
+namespace ExemploGraphApi
+{
+    public class ProcessadorFormularios
+    {
+        // Contador para numerar arquivos baixados
+        private static int _arquivoCount = 0;
+
+        /// <summary>
+        /// Obtém do App.config qual é o ambiente atual: "Dev" ou "Prod".
+        /// </summary>
+        private string ObterAmbienteDoConfig()
+        {
+            // Lê a chave "Ambiente" do App.config
+            var ambiente = ConfigurationManager.AppSettings["Ambiente"];
+            // Se não encontrar, poderia definir um padrão ou lançar exceção
+            return string.IsNullOrEmpty(ambiente) ? "Dev" : ambiente;
+        }
+
+        /// <summary>
+        /// Método para obter o token (Bearer) via Client Credentials.
+        /// (Exemplo simplificado, ajuste para sua lógica real de autenticação)
+        /// </summary>
+        private string ObterMeuTokenDeAplicacao()
+        {
+            // Aqui seria a lógica real (Client Credentials). Exemplo:
+            // IConfidentialClientApplication app = ConfidentialClientApplicationBuilder
+            //     .Create(clientId)
+            //     .WithClientSecret(clientSecret)
+            //     .WithAuthority($"https://login.microsoftonline.com/{tenantId}")
+            //     .Build();
+            //
+            // var result = app.AcquireTokenForClient(new[] { "https://graph.microsoft.com/.default" })
+            //                 .ExecuteAsync().Result;
+            //
+            // return result.AccessToken;
+
+            // Exemplo "fake" para demonstração:
+            return "eyJhbGciOiJFfakeTokenSoDeExemplo...";
+        }
+
+        // ---------------------------------------------------------------------
+        //  MÉTODOS: cada um define suas configurações (caminhos, keywords) localmente
+        // ---------------------------------------------------------------------
+
+        public async Task BaixarOnboardDigitalAsync()
+        {
+            // 1) Ler ambiente do App.config
+            string ambiente = ObterAmbienteDoConfig();
+
+            // 2) Obter token antes de executar
+            string token = ObterMeuTokenDeAplicacao();
+
+            // 3) Definir e-mail, filtros, extensão
+            string userEmail = "onboardDigital@seuTenant.onmicrosoft.com";
+            var keywords = new List<string> { "onboardDigital" };
+            string extensaoDesejada = ".xlsx";
+
+            // 4) Escolher caminho de acordo com DEV ou PROD
+            // Note que cada método tem seu próprio caminho
+            string pastaDestino;
+            if (ambiente.Equals("Dev", StringComparison.OrdinalIgnoreCase))
+            {
+                pastaDestino = @"C:\Dev\OnboardDigital"; // Exemplo para DEV
+            }
+            else
+            {
+                pastaDestino = @"\\ServidorProd\OnboardDigital"; // Exemplo para PROD
+            }
+
+            // 5) Fazer o download e em seguida Importar
+            await BaixarAnexosFiltradosAsync(token, userEmail, keywords, pastaDestino, extensaoDesejada);
+            ImportarFormularioCliente("OnboardDigital");
+        }
+
+        public async Task BaixarInstitucionalAsync()
+        {
+            string ambiente = ObterAmbienteDoConfig();
+            string token = ObterMeuTokenDeAplicacao();
+
+            string userEmail = "institucional@seuTenant.onmicrosoft.com";
+            var keywords = new List<string> { "institucional" };
+            string extensaoDesejada = ".xlsx";
+
+            string pastaDestino;
+            if (ambiente.Equals("Dev", StringComparison.OrdinalIgnoreCase))
+            {
+                pastaDestino = @"C:\Dev\Institucional";
+            }
+            else
+            {
+                pastaDestino = @"\\ServidorProd\Institucional";
+            }
+
+            await BaixarAnexosFiltradosAsync(token, userEmail, keywords, pastaDestino, extensaoDesejada);
+            ImportarFormularioCliente("Institucional");
+        }
+
+        public async Task BaixarRelacionamentoAsync()
+        {
+            string ambiente = ObterAmbienteDoConfig();
+            string token = ObterMeuTokenDeAplicacao();
+
+            string userEmail = "relacionamento@seuTenant.onmicrosoft.com";
+            var keywords = new List<string> { "relacionamento" };
+            string extensaoDesejada = ".xlsx";
+
+            string pastaDestino;
+            if (ambiente.Equals("Dev", StringComparison.OrdinalIgnoreCase))
+            {
+                pastaDestino = @"C:\Dev\Relacionamento";
+            }
+            else
+            {
+                pastaDestino = @"\\ServidorProd\Relacionamento";
+            }
+
+            await BaixarAnexosFiltradosAsync(token, userEmail, keywords, pastaDestino, extensaoDesejada);
+            ImportarFormularioCliente("Relacionamento");
+        }
+
+        public async Task BaixarRenovacaoKycAsync()
+        {
+            string ambiente = ObterAmbienteDoConfig();
+            string token = ObterMeuTokenDeAplicacao();
+
+            string userEmail = "renovacaokyc@seuTenant.onmicrosoft.com";
+            var keywords = new List<string> { "renovacao", "kyc" };
+            string extensaoDesejada = ".xlsx";
+
+            string pastaDestino;
+            if (ambiente.Equals("Dev", StringComparison.OrdinalIgnoreCase))
+            {
+                pastaDestino = @"C:\Dev\RenovacaoKyc";
+            }
+            else
+            {
+                pastaDestino = @"\\ServidorProd\RenovacaoKyc";
+            }
+
+            await BaixarAnexosFiltradosAsync(token, userEmail, keywords, pastaDestino, extensaoDesejada);
+            ImportarFormularioCliente("RenovacaoKyc");
+        }
+
+        public async Task BaixarAgropjAsync()
+        {
+            string ambiente = ObterAmbienteDoConfig();
+            string token = ObterMeuTokenDeAplicacao();
+
+            string userEmail = "agropj@seuTenant.onmicrosoft.com";
+            var keywords = new List<string> { "agropj" };
+            string extensaoDesejada = ".xlsx";
+
+            string pastaDestino;
+            if (ambiente.Equals("Dev", StringComparison.OrdinalIgnoreCase))
+            {
+                pastaDestino = @"C:\Dev\AgroPJ";
+            }
+            else
+            {
+                pastaDestino = @"\\ServidorProd\AgroPJ";
+            }
+
+            await BaixarAnexosFiltradosAsync(token, userEmail, keywords, pastaDestino, extensaoDesejada);
+            ImportarFormularioCliente("AgroPJ");
+        }
+
+        public async Task BaixarAgropfAsync()
+        {
+            string ambiente = ObterAmbienteDoConfig();
+            string token = ObterMeuTokenDeAplicacao();
+
+            string userEmail = "agropf@seuTenant.onmicrosoft.com";
+            var keywords = new List<string> { "agropf" };
+            string extensaoDesejada = ".xlsx";
+
+            string pastaDestino;
+            if (ambiente.Equals("Dev", StringComparison.OrdinalIgnoreCase))
+            {
+                pastaDestino = @"C:\Dev\AgroPF";
+            }
+            else
+            {
+                pastaDestino = @"\\ServidorProd\AgroPF";
+            }
+
+            await BaixarAnexosFiltradosAsync(token, userEmail, keywords, pastaDestino, extensaoDesejada);
+            ImportarFormularioCliente("AgroPF");
+        }
+
+        // ---------------------------------------------------------------------
+        //  LÓGICA GENÉRICA DE DOWNLOAD FILTRADO
+        // ---------------------------------------------------------------------
+        private async Task BaixarAnexosFiltradosAsync(
+            string token,
+            string userEmail,
+            List<string> keywords,
+            string pastaDestino,
+            string extensaoDesejada)
+        {
+            var graphClient = new GraphServiceClient(
+                new DelegateAuthenticationProvider(requestMessage =>
+                {
+                    requestMessage.Headers.Authorization =
+                        new AuthenticationHeaderValue("Bearer", token);
+
+                    return Task.CompletedTask;
+                })
+            );
+
+            var messages = await graphClient
+                .Users[userEmail]
+                .MailFolders["Inbox"]
+                .Messages
+                .Request()
+                .Expand("attachments")
+                .Filter("hasAttachments eq true")
+                .GetAsync();
+
+            // Cria a pasta se não existir
+            if (!Directory.Exists(pastaDestino))
+            {
+                Directory.CreateDirectory(pastaDestino);
+            }
+
+            // Paginação
+            while (messages != null && messages.Count > 0)
+            {
+                foreach (var message in messages)
+                {
+                    if (message.HasAttachments == true && message.Attachments != null)
+                    {
+                        foreach (var attachment in message.Attachments)
+                        {
+                            if (attachment is FileAttachment fileAttachment)
+                            {
+                                // Filtra por keyword e extensão
+                                bool contemKeyword = keywords.Any(kw =>
+                                    fileAttachment.Name.IndexOf(kw, StringComparison.OrdinalIgnoreCase) >= 0);
+
+                                bool extensaoValida = fileAttachment.Name.EndsWith(
+                                    extensaoDesejada, 
+                                    StringComparison.OrdinalIgnoreCase);
+
+                                if (contemKeyword && extensaoValida)
+                                {
+                                    // Prefixa cada arquivo com um contador crescente
+                                    _arquivoCount++;
+                                    string novoNome = $"{_arquivoCount}_{fileAttachment.Name}";
+                                    string filePath = Path.Combine(pastaDestino, novoNome);
+
+                                    File.WriteAllBytes(filePath, fileAttachment.ContentBytes);
+                                    Console.WriteLine($"Baixado: {filePath}");
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (messages.NextPageRequest != null)
+                {
+                    messages = await messages.NextPageRequest.GetAsync();
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        //  MÉTODO DE IMPORT (chamado ao final de cada método)
+        // ---------------------------------------------------------------------
+        private void ImportarFormularioCliente(string contexto)
+        {
+            // Lógica de import já existente
+            Console.WriteLine($"ImportarFormularioCliente() chamado para: {contexto}");
+        }
+    }
+}
+3) Como usar este código
+Configure seu App.config com a chave:
+
+xml
+Copiar
+Editar
+<add key="Ambiente" value="Dev" />
+Altere para "Prod" quando precisar.
+
+Crie/rode um método ou classe que utilize o ProcessadorFormularios. Exemplo:
+
+csharp
+Copiar
+Editar
+using System.Threading.Tasks;
+
+namespace ExemploGraphApi
+{
+    class Program
+    {
+        static async Task Main(string[] args)
+        {
+            var processador = new ProcessadorFormularios();
+
+            // Exemplo: baixar OnboardDigital e Agropf
+            await processador.BaixarOnboardDigitalAsync();
+            await processador.BaixarAgropfAsync();
+
+            // Nesse exemplo, ao mudar "Ambiente" no .config,
+            // os caminhos DEV ou PROD são escolhidos dentro dos métodos.
+        }
+    }
+}
+Verifique os arquivos baixados na pasta correspondente (DEV ou PROD), definida dentro de cada método.
+
+Cada método, ao final, chama ImportarFormularioCliente("NomeDoContexto").
+
+Observações
+A leitura do ambiente é feita no início de cada método, chamando ObterAmbienteDoConfig() (ou você poderia ler uma única vez no construtor e guardar em um campo _isDev, mas aqui cada método resolve sozinho).
+Caso queira ler o ambiente só uma vez, no construtor, e armazenar num campo, também é possível. Mas, conforme solicitado, cada método está com seu próprio bloco que decide o caminho de DEV ou PROD, sem depender de parâmetros externos.
+Ajuste os caminhos e e-mails conforme sua estrutura real (no exemplo, usei placeholders).
+Lembre-se de incluir as permissões Mail.Read (ou Mail.ReadWrite) em Application (Client Credentials) no portal do Azure, e conceder consentimento administrativo para a Graph API.
