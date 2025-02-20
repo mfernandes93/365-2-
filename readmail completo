@@ -1,0 +1,238 @@
+A seguir está um exemplo completo do método BaixarAnexosFiltradosAsync que:
+
+Lê toda a caixa de entrada (sem limite de Top).
+Aplica filtro de data mínima (minDate) e pega apenas e-mails não lidos.
+Para cada anexo, verifica se o nome do anexo contém uma única palavra-chave (nomePermitido) e se a extensão está em uma lista obtida de uma string separada por ponto-e-vírgula (extensoesSplit).
+Baixa o anexo se passar nos filtros, salvando na pasta local especificada.
+Marca o e-mail como lido e move para a subpasta "Processados365". Se ela não existir no nível raiz, é criada automaticamente (caso queira criar como subpasta do Inbox, ajuste o código).
+Esse exemplo usa o Microsoft Graph com um GraphServiceClient recebido via construtor (mas você pode adaptar para criar o client dentro do próprio método, caso deseje).
+
+csharp
+Copiar
+Editar
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+using Microsoft.Graph;
+
+public class EmailProcessador
+{
+    private readonly GraphServiceClient _graphClient;
+
+    // Construtor recebe o token (Bearer)
+    public EmailProcessador(string token)
+    {
+        _graphClient = new GraphServiceClient(
+            new DelegateAuthenticationProvider(requestMessage =>
+            {
+                requestMessage.Headers.Authorization =
+                    new AuthenticationHeaderValue("Bearer", token);
+
+                // Em .NET 4.5.2, não há Task.CompletedTask:
+                return Task.FromResult(0);
+            })
+        );
+    }
+
+    /// <summary>
+    /// Lê toda a caixa de entrada de 'mailBox', filtra e-mails não lidos e posteriores a 'minDate'.
+    /// Para cada anexo, verifica se o nome contém 'nomePermitido' e 
+    /// se a extensão está em 'extensoesSplit' (ex: ".pdf;.xlsx").
+    /// Se passar no filtro, baixa o arquivo em 'pastaDestino', 
+    /// marca o e-mail como lido e move para a pasta "Processados365".
+    /// </summary>
+    public async Task BaixarAnexosFiltradosAsync(
+        string mailBox,
+        string pastaDestino,
+        DateTime minDate,
+        string nomePermitido,
+        string extensoesSplit)
+    {
+        // 1) Separar as extensões válidas (ex: ".pdf;.xlsx")
+        var extsPermitidas = extensoesSplit?
+            .Split(';')
+            .Select(x => x.Trim().ToLower())
+            .Where(x => !string.IsNullOrEmpty(x))
+            .ToList()
+            ?? new List<string>();
+
+        // 2) Criar a pasta local se não existir
+        if (!Directory.Exists(pastaDestino))
+            Directory.CreateDirectory(pastaDestino);
+
+        // 3) Criar/Verificar pasta "Processados365" no nível raiz do mailbox
+        await CriarPastaSeNaoExisteNoRaizAsync(mailBox, "Processados365");
+
+        // 4) Obter todas as mensagens (paginação manual), expandindo anexos
+        var messages = await _graphClient
+            .Users[mailBox]
+            .MailFolders["Inbox"]
+            .Messages
+            .Request()
+            .Expand("attachments")
+            .GetAsync();
+
+        // 5) Paginação
+        while (messages != null && messages.Count > 0)
+        {
+            foreach (var message in messages)
+            {
+                // a) Ignorar se já estiver lido
+                if (message.IsRead == true)
+                    continue;
+
+                // b) Ignorar se data for anterior a 'minDate'
+                if (message.ReceivedDateTime < minDate)
+                    continue;
+
+                // c) Se não tem anexos, pula
+                if (message.HasAttachments != true || message.Attachments == null)
+                    continue;
+
+                bool baixouAlgumAnexo = false;
+                foreach (var attachment in message.Attachments)
+                {
+                    if (attachment is FileAttachment fileAttachment)
+                    {
+                        // Nome do anexo em minúsculas para comparar
+                        string nomeAnexoLower = fileAttachment.Name.ToLower();
+
+                        // 1) Verificar se contém a palavra permitida
+                        bool contemNome = nomeAnexoLower.IndexOf(
+                            nomePermitido.ToLower(), 
+                            StringComparison.OrdinalIgnoreCase
+                        ) >= 0;
+
+                        // 2) Verificar a extensão
+                        bool extensaoOk = extsPermitidas.Any(ext =>
+                            nomeAnexoLower.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+
+                        // Se não atender aos dois filtros, pula
+                        if (!contemNome || !extensaoOk)
+                            continue;
+
+                        // Se chegou aqui, vamos baixar
+                        string filePath = Path.Combine(pastaDestino, fileAttachment.Name);
+                        File.WriteAllBytes(filePath, fileAttachment.ContentBytes);
+
+                        Console.WriteLine($"Baixado: {filePath}");
+                        baixouAlgumAnexo = true;
+                    }
+                }
+
+                // Se baixou algo, marca como lido e move p/ "Processados365"
+                if (baixouAlgumAnexo)
+                {
+                    // Marcar como lido
+                    message.IsRead = true;
+                    await _graphClient
+                        .Users[mailBox]
+                        .Messages[message.Id]
+                        .Request()
+                        .UpdateAsync(message);
+
+                    // Mover para a pasta "Processados365"
+                    await _graphClient
+                        .Users[mailBox]
+                        .Messages[message.Id]
+                        .Move("Processados365")
+                        .Request()
+                        .PostAsync();
+
+                    Console.WriteLine($"E-mail movido para 'Processados365': {message.Subject}");
+                }
+            }
+
+            // Verificar próxima página
+            if (messages.NextPageRequest != null)
+            {
+                messages = await messages.NextPageRequest.GetAsync();
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifica se existe uma pasta no "raiz" do mailbox com DisplayName = folderName.
+    /// Se não existir, cria.
+    /// </summary>
+    private async Task CriarPastaSeNaoExisteNoRaizAsync(string mailBox, string folderName)
+    {
+        // Buscar as pastas de nível raiz
+        var rootFolders = await _graphClient
+            .Users[mailBox]
+            .MailFolders
+            .Request()
+            .GetAsync();
+
+        var existe = rootFolders.FirstOrDefault(f =>
+            f.DisplayName.Equals(folderName, StringComparison.OrdinalIgnoreCase));
+
+        if (existe == null)
+        {
+            var nova = new MailFolder
+            {
+                DisplayName = folderName
+            };
+
+            await _graphClient
+                .Users[mailBox]
+                .MailFolders
+                .Request()
+                .AddAsync(nova);
+
+            Console.WriteLine($"Pasta '{folderName}' criada em nível raiz.");
+        }
+    }
+}
+Como Usar
+Obtenha o token (Bearer) via Client Credentials (ou outro método), por exemplo:
+
+csharp
+Copiar
+Editar
+string token = await ObterTokenAsync();
+Instancie a classe:
+
+csharp
+Copiar
+Editar
+var processador = new EmailProcessador(token);
+Chame o método, passando os parâmetros desejados:
+
+csharp
+Copiar
+Editar
+await processador.BaixarAnexosFiltradosAsync(
+    mailBox: "usuario@tenant.onmicrosoft.com",
+    pastaDestino: @"C:\Downloads\Anexos",
+    minDate: new DateTime(2025, 2, 21),
+    nomePermitido: "contrato",            // Ex.: se o anexo precisar conter "contrato"
+    extensoesSplit: ".pdf;.xlsx;.docx"    // Ex.: extensões válidas
+);
+O que acontece no código?
+Lê a caixa inteira de “Inbox”, expandindo anexos.
+Itera pelas mensagens (paginando até o fim).
+Descarta as que já estão lidas ou que chegaram antes de minDate.
+Em cada anexo:
+Verifica se o nome do anexo contém nomePermitido.
+Verifica se a extensão (por exemplo, .pdf) está em extensoesSplit.
+Baixa somente os anexos aprovados, salvando em pastaDestino.
+Marca o e-mail como lido e move para Processados365. Se a pasta não existir no nível raiz, é criada.
+Personalizações
+Se quiser retirar a parte de marcar como lido e mover para subpasta, basta remover ou comentar as chamadas de UpdateAsync(...) e Move(...).
+Se não precisar filtrar por data ou status (lido/não lido), remova esses if.
+Se quiser renomear o arquivo (por exemplo, adicionar prefixo sequencial ou data/hora), faça:
+csharp
+Copiar
+Editar
+string novoNome = $"{DateTime.Now:yyyyMMddHHmmss}_{fileAttachment.Name}";
+string filePath = Path.Combine(pastaDestino, novoNome);
+Caso precise de logs em arquivos, crie um método auxiliar de log e chame-o no lugar de Console.WriteLine.
+Pronto! Assim você tem um método completo para ler toda a caixa, filtrar anexo por uma string (nomePermitido) e por extensões separadas por ;, além de marcar como lido e mover para "Processados365".
