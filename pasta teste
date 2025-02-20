@@ -1,0 +1,20 @@
+var inbox = await graphClient
+    .Users[MailBox]
+    .MailFolders["inbox"]
+    .ChildFolders
+    .Request()
+    .GetAsync();
+
+var pastaTeste = inbox.FirstOrDefault(f => f.DisplayName == "teste");
+
+if (pastaTeste == null)
+{
+    throw new Exception("A pasta 'teste' não foi encontrada dentro da Caixa de Entrada.");
+}
+
+var messages = await graphClient
+    .Users[MailBox]
+    .MailFolders[pastaTeste.Id] // Agora usa o ID da pasta encontrada
+    .Messages
+    .Request()
+    .GetAsync();
