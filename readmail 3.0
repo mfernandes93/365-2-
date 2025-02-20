@@ -1,0 +1,264 @@
+A seguir está uma versão que não usa Split(';') para o assunto que deve conter determinada palavra. Em outras palavras, será apenas uma palavra obrigatória no assunto. Os demais filtros (domínios bloqueados, assunto proibido, anexo contendo um nome e extensão válidos, ignorar própria conta etc.) continuam separados por ponto-e-vírgula se você desejar.
+
+csharp
+Copiar
+Editar
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+using Microsoft.Graph;
+
+public class EmailProcessador
+{
+    private readonly GraphServiceClient _graphClient;
+
+    // Construtor recebe o token (Bearer)
+    public EmailProcessador(string token)
+    {
+        _graphClient = new GraphServiceClient(
+            new DelegateAuthenticationProvider(requestMessage =>
+            {
+                requestMessage.Headers.Authorization =
+                    new AuthenticationHeaderValue("Bearer", token);
+                // Em .NET 4.5.2, substitui Task.CompletedTask
+                return Task.FromResult(0);
+            })
+        );
+    }
+
+    /// <summary>
+    /// Lê toda a caixa de entrada de 'mailBox', filtra e-mails por:
+    /// 1) assunto que deve conter 'assuntoObrigatorio' (uma única palavra/frase),
+    /// 2) não lidos,
+    /// 3) data mínima (minDate),
+    /// 4) ignorar e-mails do próprio mailbox, se solicitado,
+    /// 5) ignorar domínios,
+    /// 6) ignorar assunto proibido (split por ";"),
+    /// e para cada anexo, verifica se o nome contém 'nomePermitido' 
+    /// e se a extensão está em 'extensoesSplit' (split por ";").
+    /// Marcar o e-mail como lido e mover para "Processados365" no final.
+    /// </summary>
+    /// <param name="mailBox">Ex.: "usuario@tenant.onmicrosoft.com"</param>
+    /// <param name="pastaDestino">Onde salvar os anexos</param>
+    /// <param name="minDate">Data mínima para o e-mail</param>
+    /// <param name="assuntoObrigatorio">Palavra/frase que deve aparecer no assunto (sem split)</param>
+    /// <param name="nomePermitido">Palavra que deve aparecer no nome do anexo</param>
+    /// <param name="extensoesSplit">Ex: ".pdf;.xlsx" para extensões</param>
+    /// <param name="dominiosIgnorarSplit">Ex: "gmail.com;outlook.com"</param>
+    /// <param name="assuntoIgnorarSplit">Ex: "spam;teste"</param>
+    /// <param name="ignorarEmailPropriaConta">Se true, ignora e-mails vindos de 'mailBox'</param>
+    public async Task BaixarAnexosFiltradosAsync(
+        string mailBox,
+        string pastaDestino,
+        DateTime minDate,
+        string assuntoObrigatorio,
+        string nomePermitido,
+        string extensoesSplit,
+        string dominiosIgnorarSplit,
+        string assuntoIgnorarSplit,
+        bool ignorarEmailPropriaConta
+    )
+    {
+        // 1) Montar listas para extensões, domínios e assunto proibido 
+        var extsPermitidas = extensoesSplit?
+            .Split(';')
+            .Select(x => x.Trim().ToLower())
+            .Where(x => !string.IsNullOrEmpty(x))
+            .ToList()
+            ?? new List<string>();
+
+        var dominiosIgnorar = dominiosIgnorarSplit?
+            .Split(';')
+            .Select(x => x.Trim().ToLower())
+            .Where(x => !string.IsNullOrEmpty(x))
+            .ToList()
+            ?? new List<string>();
+
+        var assuntoIgnorar = assuntoIgnorarSplit?
+            .Split(';')
+            .Select(x => x.Trim().ToLower())
+            .Where(x => !string.IsNullOrEmpty(x))
+            .ToList()
+            ?? new List<string>();
+
+        // 2) Garante a pasta local
+        if (!Directory.Exists(pastaDestino))
+            Directory.CreateDirectory(pastaDestino);
+
+        // 3) Cria/verifica pasta "Processados365" no nível raiz
+        await CriarPastaSeNaoExisteNoRaizAsync(mailBox, "Processados365");
+
+        // 4) Obter todas as mensagens da Inbox (paginando)
+        var messages = await _graphClient
+            .Users[mailBox]
+            .MailFolders["Inbox"]
+            .Messages
+            .Request()
+            .Expand("attachments")
+            .GetAsync();
+
+        // 5) Loop de paginação
+        while (messages != null && messages.Count > 0)
+        {
+            foreach (var message in messages)
+            {
+                // a) Se já estiver lido, ignora
+                if (message.IsRead == true)
+                    continue;
+
+                // b) Filtra data mínima
+                if (message.ReceivedDateTime < minDate)
+                    continue;
+
+                // c) Assunto deve conter 'assuntoObrigatorio'
+                var subjectLower = (message.Subject ?? "").ToLower();
+                if (!string.IsNullOrEmpty(assuntoObrigatorio))
+                {
+                    if (!subjectLower.Contains(assuntoObrigatorio.ToLower()))
+                        continue;
+                }
+
+                // d) Se ignorar e-mail da própria conta:
+                var senderAddress = message.Sender?.EmailAddress?.Address ?? "";
+                if (ignorarEmailPropriaConta &&
+                    senderAddress.Equals(mailBox, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // e) Ignorar domínios
+                var dominioRemetente = senderAddress.Split('@').LastOrDefault()?.ToLower() ?? "";
+                bool dominioBloqueado = dominiosIgnorar.Any(d => dominioRemetente.Contains(d));
+                if (dominioBloqueado)
+                    continue;
+
+                // f) Ignorar assunto proibido
+                bool temAssuntoProibido = assuntoIgnorar.Any(ai => subjectLower.Contains(ai));
+                if (temAssuntoProibido)
+                    continue;
+
+                // g) Se não tem anexos, pula
+                if (message.HasAttachments != true || message.Attachments == null)
+                    continue;
+
+                bool baixouAlgumAnexo = false;
+                foreach (var attachment in message.Attachments)
+                {
+                    if (attachment is FileAttachment fileAttachment)
+                    {
+                        // Verifica se o anexo contém 'nomePermitido'
+                        string nomeAnexoLower = fileAttachment.Name.ToLower();
+                        bool contemNome = nomeAnexoLower.Contains(nomePermitido.ToLower());
+
+                        // Verifica se a extensão está nas permitidas
+                        bool extensaoOk = extsPermitidas.Any(ext =>
+                            nomeAnexoLower.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+
+                        // Se não satisfizer ambos, ignora
+                        if (!contemNome || !extensaoOk)
+                            continue;
+
+                        // Baixar
+                        string filePath = Path.Combine(pastaDestino, fileAttachment.Name);
+                        File.WriteAllBytes(filePath, fileAttachment.ContentBytes);
+
+                        Console.WriteLine($"Baixado: {filePath}");
+                        baixouAlgumAnexo = true;
+                    }
+                }
+
+                // Se baixou algo, marca como lido e move
+                if (baixouAlgumAnexo)
+                {
+                    // Marca como lido
+                    message.IsRead = true;
+                    await _graphClient
+                        .Users[mailBox]
+                        .Messages[message.Id]
+                        .Request()
+                        .UpdateAsync(message);
+
+                    // Move p/ pasta "Processados365"
+                    await _graphClient
+                        .Users[mailBox]
+                        .Messages[message.Id]
+                        .Move("Processados365")
+                        .Request()
+                        .PostAsync();
+
+                    Console.WriteLine($"E-mail movido para 'Processados365': {message.Subject}");
+                }
+            }
+
+            // Próxima página
+            if (messages.NextPageRequest != null)
+            {
+                messages = await messages.NextPageRequest.GetAsync();
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifica se existe uma pasta no nível raiz do mailbox com DisplayName = folderName.
+    /// Se não existir, cria.
+    /// </summary>
+    private async Task CriarPastaSeNaoExisteNoRaizAsync(string mailBox, string folderName)
+    {
+        var rootFolders = await _graphClient
+            .Users[mailBox]
+            .MailFolders
+            .Request()
+            .GetAsync();
+
+        var existe = rootFolders.FirstOrDefault(f =>
+            f.DisplayName.Equals(folderName, StringComparison.OrdinalIgnoreCase));
+
+        if (existe == null)
+        {
+            var nova = new MailFolder
+            {
+                DisplayName = folderName
+            };
+
+            await _graphClient
+                .Users[mailBox]
+                .MailFolders
+                .Request()
+                .AddAsync(nova);
+
+            Console.WriteLine($"Pasta '{folderName}' criada no nível raiz de '{mailBox}'.");
+        }
+    }
+}
+Como chamar esse método
+Um exemplo de uso:
+
+csharp
+Copiar
+Editar
+var processador = new EmailProcessador(accessToken);
+
+await processador.BaixarAnexosFiltradosAsync(
+    mailBox: "usuario@tenant.onmicrosoft.com",
+    pastaDestino: @"C:\Downloads\Anexos",
+    minDate: new DateTime(2025, 2, 21),
+    assuntoObrigatorio: "Relatorio Anual",   // Uma única string (ex.: "Relatorio Anual")
+    nomePermitido: "formulario",            // O anexo deve conter "formulario"
+    extensoesSplit: ".pdf;.xlsx",           // Várias extensões separadas por ";"
+    dominiosIgnorarSplit: "gmail.com;hotmail.com",
+    assuntoIgnorarSplit: "spam;teste",      // Várias palavras proibidas no assunto
+    ignorarEmailPropriaConta: true
+);
+assuntoObrigatorio = "Relatorio Anual": se o assunto não contiver essa string, ignora o e-mail.
+nomePermitido = "formulario": se o anexo não contiver “formulario” no nome, ignora-o.
+extensoesSplit = ".pdf;.xlsx": somente .pdf ou .xlsx.
+dominiosIgnorarSplit = "gmail.com;hotmail.com".
+assuntoIgnorarSplit = "spam;teste".
+ignorarEmailPropriaConta = true => Se o e-mail for do próprio “usuario@tenant.onmicrosoft.com”, ignora.
