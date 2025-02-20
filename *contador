@@ -241,3 +241,34 @@ public class EmailProcessador
         // Salvar o histórico atualizado (para não baixar de novo em outra execução)
         SalvarArquivosBaixados();
     }
+
+
+private void CarregarArquivosBaixados()
+    {
+        if (File.Exists(_pathJaBaixados))
+        {
+            var lines = File.ReadAllLines(_pathJaBaixados);
+            _arquivosBaixados = new HashSet<string>(lines);
+        }
+        else
+        {
+            _arquivosBaixados = new HashSet<string>();
+        }
+    }
+
+    /// <summary>
+    /// Salva no arquivo local (em '_pathJaBaixados') os nomes de arquivos baixados,
+    /// para não duplicar em outras execuções.
+    /// </summary>
+    private void SalvarArquivosBaixados()
+    {
+        // Garante a pasta
+        var dir = Path.GetDirectoryName(_pathJaBaixados);
+        if (!Directory.Exists(dir))
+            Directory.CreateDirectory(dir);
+
+        File.WriteAllLines(_pathJaBaixados, _arquivosBaixados);
+    }
+}
+
+
