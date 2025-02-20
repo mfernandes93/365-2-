@@ -1,0 +1,4 @@
+bool extensaoValida = "xlsx;xlsm"
+    .Split(';')
+    .Select(e => "." + e)
+    .Any(ext => fileAttachment.Name.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
