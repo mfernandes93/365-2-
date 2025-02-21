@@ -1,0 +1,38 @@
+public async Task<string> ObterVaultTokenViaMutualTlsAsync(string vaultBaseUrl, string loginPath, string vaultCertPfxPath, string vaultCertPfxPass)
+{
+    System.Net.ServicePointManager.SecurityProtocol =
+        SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
+
+    var clientCertificate = new X509Certificate2(vaultCertPfxPath, vaultCertPfxPass, 
+        X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.Exportable);
+
+    var handler = new HttpClientHandler();
+    handler.ClientCertificates.Add(clientCertificate);
+    handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+
+    using (var httpClient = new HttpClient(handler))
+    {
+        httpClient.BaseAddress = new Uri(vaultBaseUrl);
+        httpClient.Timeout = TimeSpan.FromSeconds(10); // Adicionado timeout
+
+        Console.WriteLine("Enviando requisição para autenticação...");
+
+        // Corrigindo envio POST vazio
+        var response = await httpClient.PostAsync(loginPath, new StringContent("{}", Encoding.UTF8, "application/json"));
+
+        if (!response.IsSuccessStatusCode)
+        {
+            string err = await response.Content.ReadAsStringAsync();
+            throw new Exception($"Erro ao autenticar no Vault: {response.StatusCode}\n{err}");
+        }
+
+        string json = await response.Content.ReadAsStringAsync();
+        var obj = JObject.Parse(json);
+
+        string vaultToken = obj["auth"]?["client_token"]?.ToString();
+        if (string.IsNullOrEmpty(vaultToken))
+            throw new Exception($"Não foi possível extrair 'client_token' do JSON: {json}");
+
+        return vaultToken;
+    }
+}
