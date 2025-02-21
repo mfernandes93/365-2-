@@ -1,39 +1,53 @@
 public string ObterVaultTokenViaMutualTls(string vaultBaseUrl, string loginPath, string vaultCertPfxPath, string vaultCertPfxPass)
 {
-    System.Net.ServicePointManager.SecurityProtocol =
-        SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
+    System.Net.ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
 
+    // Carregar certificado PFX
     var clientCertificate = new X509Certificate2(vaultCertPfxPath, vaultCertPfxPass, 
         X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.Exportable);
 
-    var handler = new HttpClientHandler();
-    handler.ClientCertificates.Add(clientCertificate);
-    handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+    // Criar a requisição WebRequest
+    var request = (HttpWebRequest)WebRequest.Create(vaultBaseUrl + loginPath);
+    request.Method = "POST";
+    request.ContentType = "application/json";
+    request.ClientCertificates.Add(clientCertificate);
+    request.Timeout = 10000; // Timeout de 10 segundos
 
-    using (var httpClient = new HttpClient(handler))
+    // Escrever um corpo vazio `{}` no POST
+    using (var requestStream = request.GetRequestStream())
     {
-        httpClient.BaseAddress = new Uri(vaultBaseUrl);
-        httpClient.Timeout = TimeSpan.FromSeconds(10); // Adicionando timeout
+        byte[] postBytes = Encoding.UTF8.GetBytes("{}");
+        requestStream.Write(postBytes, 0, postBytes.Length);
+    }
 
-        Console.WriteLine("Enviando requisição para autenticação...");
-
-        // Chamando `PostAsync()` de forma síncrona
-        var response = httpClient.PostAsync(loginPath, new StringContent("{}", Encoding.UTF8, "application/json"))
-                                 .GetAwaiter().GetResult();
-
-        if (!response.IsSuccessStatusCode)
+    try
+    {
+        using (var response = (HttpWebResponse)request.GetResponse())
         {
-            string err = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-            throw new Exception($"Erro ao autenticar no Vault: {response.StatusCode}\n{err}");
+            using (var reader = new StreamReader(response.GetResponseStream()))
+            {
+                string json = reader.ReadToEnd();
+
+                // Parse do JSON manualmente com JObject (Newtonsoft.Json)
+                var obj = JObject.Parse(json);
+                string vaultToken = obj["auth"]?["client_token"]?.ToString();
+
+                if (string.IsNullOrEmpty(vaultToken))
+                    throw new Exception($"Não foi possível extrair 'client_token' do JSON: {json}");
+
+                return vaultToken;
+            }
         }
-
-        string json = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-        var obj = JObject.Parse(json);
-
-        string vaultToken = obj["auth"]?["client_token"]?.ToString();
-        if (string.IsNullOrEmpty(vaultToken))
-            throw new Exception($"Não foi possível extrair 'client_token' do JSON: {json}");
-
-        return vaultToken;
+    }
+    catch (WebException ex)
+    {
+        using (var errorResponse = (HttpWebResponse)ex.Response)
+        {
+            using (var reader = new StreamReader(errorResponse.GetResponseStream()))
+            {
+                string error = reader.ReadToEnd();
+                throw new Exception($"Erro ao autenticar no Vault: {errorResponse.StatusCode}\n{error}");
+            }
+        }
     }
 }
