@@ -1,0 +1,272 @@
+public async Task BaixarAnexosFiltradosAsync(
+    string mailBox,
+    string pastaDestino,
+    DateTime minDate,
+    string assuntoObrigatorio,
+    string nomePermitido,
+    string extensoesSplit,
+    string dominiosIgnorarSplit,
+    string assuntoIgnorarSplit,
+    bool ignorarEmailPropriaConta
+)
+{
+    // -------------------------------------------------------------------
+    // A) Variáveis e métodos locais para histórico
+    // -------------------------------------------------------------------
+
+    // Onde vamos salvar o histórico de nomes truncados
+    string pathJaBaixados = @"C:\Downloads\jaBaixados.txt";
+    var arquivosTruncadosBaixados = new HashSet<string>();
+
+    // Carrega do arquivo local, cada linha já é o nome "truncado"
+    void CarregarHistorico()
+    {
+        if (File.Exists(pathJaBaixados))
+        {
+            var lines = File.ReadAllLines(pathJaBaixados);
+            arquivosTruncadosBaixados = new HashSet<string>(lines);
+        }
+        else
+        {
+            arquivosTruncadosBaixados = new HashSet<string>();
+        }
+    }
+
+    // Salva no arquivo local, só o nome truncado de cada linha
+    void SalvarHistorico()
+    {
+        var dir = Path.GetDirectoryName(pathJaBaixados);
+        if (!Directory.Exists(dir))
+            Directory.CreateDirectory(dir);
+
+        File.WriteAllLines(pathJaBaixados, arquivosTruncadosBaixados);
+    }
+
+    // Carrega no início
+    CarregarHistorico();
+
+    // Contador pra diferenciar nomes dentro da mesma execução
+    int contadorArquivos = 0;
+
+    // -------------------------------------------------------------------
+    // B) Montar listas para filtros (extensões, domínios, assunto ignorado)
+    // -------------------------------------------------------------------
+    var extsPermitidas = extensoesSplit?
+        .Split(';')
+        .Select(x => x.Trim().ToLower())
+        .Where(x => !string.IsNullOrEmpty(x))
+        .ToList()
+        ?? new List<string>();
+
+    var dominiosIgnorar = dominiosIgnorarSplit?
+        .Split(';')
+        .Select(x => x.Trim().ToLower())
+        .Where(x => !string.IsNullOrEmpty(x))
+        .ToList()
+        ?? new List<string>();
+
+    var assuntoIgnorar = assuntoIgnorarSplit?
+        .Split(';')
+        .Select(x => x.Trim().ToLower())
+        .Where(x => !string.IsNullOrEmpty(x))
+        .ToList()
+        ?? new List<string>();
+
+    // -------------------------------------------------------------------
+    // C) Pasta local de destino e subpasta "Processados365" no mailbox
+    // -------------------------------------------------------------------
+    if (!Directory.Exists(pastaDestino))
+        Directory.CreateDirectory(pastaDestino);
+
+    await CriarPastaSeNaoExisteNoRaizAsync(mailBox, "Processados365");
+
+    // -------------------------------------------------------------------
+    // D) Buscar mensagens na Inbox (paginação), expandindo anexos
+    // -------------------------------------------------------------------
+    var messages = await _graphClient
+        .Users[mailBox]
+        .MailFolders["Inbox"]
+        .Messages
+        .Request()
+        .Expand("attachments")
+        .GetAsync();
+
+    while (messages != null && messages.Count > 0)
+    {
+        foreach (var message in messages)
+        {
+            // 1) Ignorar se já está lido
+            if (message.IsRead == true)
+                continue;
+
+            // 2) Data mínima
+            if (message.ReceivedDateTime < minDate)
+                continue;
+
+            // 3) Assunto deve conter 'assuntoObrigatorio'
+            var subjectLower = (message.Subject ?? "").ToLower();
+            if (!string.IsNullOrEmpty(assuntoObrigatorio))
+            {
+                if (!subjectLower.Contains(assuntoObrigatorio.ToLower()))
+                    continue;
+            }
+
+            // 4) Ignorar e-mail da própria conta?
+            var senderAddress = message.Sender?.EmailAddress?.Address ?? "";
+            if (ignorarEmailPropriaConta &&
+                senderAddress.Equals(mailBox, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // 5) Ignorar domínios
+            var dominio = senderAddress.Split('@').LastOrDefault()?.ToLower() ?? "";
+            if (dominiosIgnorar.Any(d => dominio.Contains(d)))
+                continue;
+
+            // 6) Ignorar se assunto tiver palavras proibidas
+            if (assuntoIgnorar.Any(ai => subjectLower.Contains(ai)))
+                continue;
+
+            // 7) Se não tem anexos, pula
+            if (message.HasAttachments != true || message.Attachments == null)
+                continue;
+
+            bool baixouAlgumAnexo = false;
+
+            foreach (var attachment in message.Attachments)
+            {
+                if (attachment is FileAttachment fileAttachment)
+                {
+                    // Filtro "nomePermitido"
+                    string nomeAnexoLower = fileAttachment.Name.ToLower();
+                    bool contemNome = true;
+                    if (!string.IsNullOrEmpty(nomePermitido))
+                        contemNome = nomeAnexoLower.Contains(nomePermitido.ToLower());
+
+                    // Filtro de extensão
+                    bool extensaoOk = true;
+                    if (extsPermitidas.Any())
+                    {
+                        extensaoOk = extsPermitidas.Any(ext =>
+                            nomeAnexoLower.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+                    }
+
+                    if (!contemNome || !extensaoOk)
+                        continue;
+
+                    // Monta o nome COMPLETO (com prefixo data/hora e contador)
+                    contadorArquivos++;
+                    string extensao = Path.GetExtension(fileAttachment.Name);
+                    string nomeBase = Path.GetFileNameWithoutExtension(fileAttachment.Name);
+
+                    // Exemplo de prefixo: "20250221_103045_"
+                    string prefixoData = DateTime.Now.ToString("yyyyMMdd_HHmmss_");
+                    // Sufixo "((n))"
+                    string sufixoCont = $"(({contadorArquivos}))";
+
+                    // Nome completo final, ex.: "20250221_103045_arquivo((1)).pdf"
+                    string novoNomeCompleto = $"{prefixoData}{nomeBase}{sufixoCont}{extensao}";
+
+                    // Agora geramos a VERSÃO TRUNCADA (ignora 14 primeiros chars)
+                    // Se seu prefixoData for 15 caracteres (ex.: "yyyyMMdd_HHmmss_"), ajuste. 
+                    // Supondo "yyyyMMdd_HHmmss_" => 15 caracteres. 
+                    // Se for 14, troque a contagem.
+                    int ignorarNChars = prefixoData.Length; // 15 se "yyyyMMdd_HHmmss_"
+                    
+                    // Garante que ignorarNChars não exceda o tamanho do nome
+                    string nomeTruncado = (novoNomeCompleto.Length > ignorarNChars)
+                        ? novoNomeCompleto.Substring(ignorarNChars)
+                        : novoNomeCompleto; // se for menor
+
+                    // Verifica se no histórico consta esse "resto"
+                    if (arquivosTruncadosBaixados.Contains(nomeTruncado))
+                    {
+                        // Já baixado (versão truncada igual)
+                        Console.WriteLine($"Ignorando, pois anexo (sem prefixo) já foi baixado: {nomeTruncado}");
+                        continue;
+                    }
+
+                    // Se chegou aqui, vamos baixar
+                    string filePath = Path.Combine(pastaDestino, novoNomeCompleto);
+                    
+                    // Se o arquivo já existe no disco, também ignora
+                    if (File.Exists(filePath))
+                    {
+                        Console.WriteLine($"Arquivo já existe no disco: {filePath}");
+                        arquivosTruncadosBaixados.Add(nomeTruncado); // inclui no set
+                        continue;
+                    }
+
+                    // Salva
+                    File.WriteAllBytes(filePath, fileAttachment.ContentBytes);
+                    Console.WriteLine($"Baixado: {filePath}");
+
+                    // Marca no histórico
+                    arquivosTruncadosBaixados.Add(nomeTruncado);
+
+                    baixouAlgumAnexo = true;
+                }
+            }
+
+            if (baixouAlgumAnexo)
+            {
+                // Marca e move
+                message.IsRead = true;
+                await _graphClient
+                    .Users[mailBox]
+                    .Messages[message.Id]
+                    .Request()
+                    .UpdateAsync(message);
+
+                await _graphClient
+                    .Users[mailBox]
+                    .Messages[message.Id]
+                    .Move("Processados365")
+                    .Request()
+                    .PostAsync();
+
+                Console.WriteLine($"E-mail movido para 'Processados365': {message.Subject}");
+            }
+        }
+
+        if (messages.NextPageRequest != null)
+        {
+            messages = await messages.NextPageRequest.GetAsync();
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    // Salva o histórico atualizado
+    SalvarHistorico();
+}
+
+private async Task CriarPastaSeNaoExisteNoRaizAsync(string mailBox, string folderName)
+{
+    var rootFolders = await _graphClient
+        .Users[mailBox]
+        .MailFolders
+        .Request()
+        .GetAsync();
+
+    var existe = rootFolders.FirstOrDefault(f =>
+        f.DisplayName.Equals(folderName, StringComparison.OrdinalIgnoreCase));
+
+    if (existe == null)
+    {
+        var nova = new MailFolder
+        {
+            DisplayName = folderName
+        };
+        await _graphClient
+            .Users[mailBox]
+            .MailFolders
+            .Request()
+            .AddAsync(nova);
+
+        Console.WriteLine($"Pasta '{folderName}' criada no nível raiz de '{mailBox}'.");
+    }
+}
