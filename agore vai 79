@@ -1,0 +1,65 @@
+    public string ObterVaultTokenViaMutualTls(string vaultBaseUrl, string loginPath, string vaultCertPfxPath, string vaultCertPfxPass)
+    {
+        System.Net.ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
+
+        // Carregar certificado PFX
+        var clientCertificate = new X509Certificate2(vaultCertPfxPath, vaultCertPfxPass, 
+            X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.Exportable);
+
+        Console.WriteLine($"Certificado carregado: {clientCertificate.Subject}");
+
+        // Criar a requisição WebRequest
+        var request = (HttpWebRequest)WebRequest.Create(vaultBaseUrl + loginPath);
+        request.Method = "POST";
+        request.ContentType = "application/json";
+        request.ClientCertificates.Add(clientCertificate);
+        request.Timeout = 10000; // Timeout de 10 segundos
+
+        // Adicionar cabeçalhos necessários
+        request.Headers.Add("User-Agent", "MinhaAplicacao/1.0");
+        request.Headers.Add("Accept", "application/json");
+        request.Headers.Add("Connection", "Keep-Alive");
+
+        // Escrever o corpo JSON correto "{}"
+        string jsonBody = "{}";
+        byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
+
+        using (var requestStream = request.GetRequestStream())
+        {
+            requestStream.Write(bodyBytes, 0, bodyBytes.Length);
+        }
+
+        try
+        {
+            using (var response = (HttpWebResponse)request.GetResponse())
+            {
+                using (var reader = new StreamReader(response.GetResponseStream()))
+                {
+                    string json = reader.ReadToEnd();
+                    Console.WriteLine("Resposta recebida: " + json);
+
+                    // Parse do JSON manualmente com JObject (Newtonsoft.Json)
+                    var obj = JObject.Parse(json);
+                    string vaultToken = obj["auth"]?["client_token"]?.ToString();
+
+                    if (string.IsNullOrEmpty(vaultToken))
+                        throw new Exception($"Não foi possível extrair 'client_token' do JSON: {json}");
+
+                    return vaultToken;
+                }
+            }
+        }
+        catch (WebException ex)
+        {
+            using (var errorResponse = (HttpWebResponse)ex.Response)
+            {
+                using (var reader = new StreamReader(errorResponse.GetResponseStream()))
+                {
+                    string error = reader.ReadToEnd();
+                    Console.WriteLine("Erro na requisição: " + error);
+                    throw new Exception($"Erro ao autenticar no Vault: {errorResponse.StatusCode}\n{error}");
+                }
+            }
+        }
+    }
+}
