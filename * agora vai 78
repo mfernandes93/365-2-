@@ -1,0 +1,56 @@
+using System;
+using System.IO;
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using Newtonsoft.Json.Linq;
+
+public class VaultAuthenticator
+{
+    public string ObterVaultTokenViaMutualTls(string vaultBaseUrl, string loginPath, string vaultCertPfxPath, string vaultCertPfxPass)
+    {
+        System.Net.ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
+
+        // Carregar certificado PFX
+        var clientCertificate = new X509Certificate2(vaultCertPfxPath, vaultCertPfxPass,
+            X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.Exportable);
+
+        // Configurar o handler para usar o certificado no Vault
+        var handler = new WebRequestHandler();
+        handler.ClientCertificates.Add(clientCertificate);
+
+        // Criar o HttpClient
+        using (var httpClient = new WebClient())
+        {
+            httpClient.BaseAddress = vaultBaseUrl;
+
+            Console.WriteLine("Enviando requisição para autenticação...");
+
+            try
+            {
+                // Enviar a requisição POST de forma síncrona
+                string responseString = httpClient.UploadString(loginPath, "POST", "{}");
+
+                // Parse do JSON manualmente com JObject (Newtonsoft.Json)
+                var obj = JObject.Parse(responseString);
+                string vaultToken = obj["auth"]?["client_token"]?.ToString();
+
+                if (string.IsNullOrEmpty(vaultToken))
+                    throw new Exception($"Não foi possível extrair 'client_token' do JSON: {responseString}");
+
+                return vaultToken;
+            }
+            catch (WebException ex)
+            {
+                using (var errorResponse = (HttpWebResponse)ex.Response)
+                {
+                    using (var reader = new StreamReader(errorResponse.GetResponseStream()))
+                    {
+                        string error = reader.ReadToEnd();
+                        throw new Exception($"Erro ao autenticar no Vault: {errorResponse.StatusCode}\n{error}");
+                    }
+                }
+            }
+        }
+    }
+}
